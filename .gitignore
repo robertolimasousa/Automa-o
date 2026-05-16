@@ -1,0 +1,8 @@
+.venv
+__pycache__
+*.pyc
+*.log
+
+user_data/
+user_data_ene/
+user_data_nipo/

@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+playwright
+requests
+beautifulsoup4
+firebase-admin
+python-multipart
