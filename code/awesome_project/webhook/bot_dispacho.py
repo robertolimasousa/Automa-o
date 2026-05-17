@@ -239,8 +239,8 @@ async def executar_automacao(
                             await page.wait_for_timeout(2000)
                             
                             # SALVAR EVIDÊNCIA FÍSICA
-                            nome_arquivo = f"comprovante_{bot_name}_{numero}.png"
-                            await page.screenshot(path=nome_arquivo)
+                            #nome_arquivo = f"comprovante_{bot_name}_{numero}.png"
+                            #await page.screenshot(path=nome_arquivo)
 
                             print(f"🚀 Pedido {numero} despachado com sucesso!")
                             print(f"📸 Cópia de segurança salva em anexo na pasta: {nome_arquivo}")
