@@ -28,7 +28,7 @@ import hmac
 import hashlib
 
 # Import do bot de despacho
-from bot_dispacho import executar_automacao
+from .bot_dispacho import executar_automacao
 
 # Threading para executar o bot em paralelo
 from threading import Thread
