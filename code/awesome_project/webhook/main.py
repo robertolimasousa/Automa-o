@@ -34,7 +34,7 @@ from .bot_dispacho import executar_automacao
 from threading import Thread
 import asyncio
 from playwright.async_api import async_playwright
-from bot_dispacho import fazer_login, URL_PEDIDOS
+from .bot_dispacho import fazer_login, URL_PEDIDOS
 
 from fastapi import FastAPI
 
