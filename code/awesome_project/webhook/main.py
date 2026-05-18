@@ -4,14 +4,22 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from typing import Optional
 from contextlib import asynccontextmanager
 import os
+import sys
 import hmac
 import hashlib
 from threading import Thread, Lock
 import time
 
+# Garante que o diretório atual esteja no caminho de busca do Python
+# Isso resolve o erro ModuleNotFoundError no Render
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 # Importações internas do seu projeto
-# Ajustado para importação direta, assumindo que bot_dispacho.py está no mesmo diretório
-from bot_dispacho import executar_automacao, URL_PEDIDOS
+try:
+    from bot_dispacho import executar_automacao, URL_PEDIDOS
+except ImportError:
+    # Fallback para importação relativa se necessário
+    from .bot_dispacho import executar_automacao, URL_PEDIDOS
 
 # =============================================================================
 # 🔑 CONFIGURAÇÕES DE SEGURANÇA (Evita o bug de NameError no Webhook)
