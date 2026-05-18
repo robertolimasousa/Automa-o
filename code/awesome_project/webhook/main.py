@@ -36,11 +36,6 @@ import asyncio
 from playwright.async_api import async_playwright
 from .bot_dispacho import fazer_login, URL_PEDIDOS
 
-from fastapi import FastAPI
-
-@app.get("/")
-def home():
-    return {"status": "ok"}
 # =============================================================================
 # 🚀 INICIALIZAÇÃO (Ligando os motores)
 # =============================================================================
