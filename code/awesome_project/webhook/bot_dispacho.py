@@ -107,13 +107,12 @@ async def esperar_lista_carregar(page):
 # ==============================================================================
 # 🤖 BOT PRINCIPAL - MONITORAMENTO DE PEDIDOS
 # ==============================================================================
-fila_pedidos = set()
-
 def limpar_numero(texto):
-    """Função auxiliar para padronizar strings de pedidos."""
+    """Função auxiliar modificada: Remove espaços e símbolos, mantendo zeros à esquerda."""
     if not texto:
         return ""
-    return str(texto).replace("#", "").replace("\n", "").replace("\t", "").strip().lstrip("0")
+    # Corrigido: Não remove mais os zeros usando lstrip para preservar formatos como '0188'
+    return str(texto).replace("#", "").replace("\n", "").replace("\t", "").strip()
 
 
 async def executar_automacao(
@@ -123,9 +122,11 @@ async def executar_automacao(
     fila_pedidos_param=None,
     bot_name="Default",
 ):
-    global fila_pedidos
+    # Passa a usar diretamente a referência da fila criada no main.py
     if fila_pedidos_param is not None:
-        fila_pedidos = fila_pedidos_param
+        fila_local_referencia = fila_pedidos_param
+    else:
+        fila_local_referencia = set()
 
     print(f"🤖 Bot {bot_name} ativado (Modo 24/7): Aguardando comandos na fila!")
 
@@ -145,7 +146,7 @@ async def executar_automacao(
             await goto_com_retry(page, URL_PEDIDOS)
 
         lista = await esperar_lista_carregar(page)
-        print("📦 Sistema pronto - loop de monitoring iniciado...")
+        print(f"📦 Sistema {bot_name} pronto - loop de monitoramento iniciado...")
 
         pedidos_processados = set()
         pedidos_logados = set()
@@ -164,13 +165,13 @@ async def executar_automacao(
 
                 if total == 0:
                     if not ultimo_status_vazio:
-                        print("📭 Nenhum pedido pendente na plataforma. Aguardando...")
+                        print(f"📭 [{bot_name}] Nenhum pedido pendente na plataforma. Aguardando...")
                         ultimo_status_vazio = True
                 else:
                     ultimo_status_vazio = False
 
-                # Normaliza a fila da API uma vez por ciclo do While para poupar CPU
-                fila_normalizada = {limpar_numero(x) for x in fila_pedidos if x}
+                # Coleta e limpa os itens direto da fila compartilhada viva
+                fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
 
                 for i in range(total):
                     pedido = elementos.nth(i)
@@ -189,55 +190,47 @@ async def executar_automacao(
                         if numero not in pedidos_logados:
                             print(f"🔎 Pedido encontrado na tela [{bot_name}]: {numero}")
                             pedidos_logados.add(numero)
-                            print(f"📥 FILA API ATUAL: {fila_normalizada}")
+                            print(f"📥 FILA ATIVA [{bot_name}]: {fila_normalizada}")
 
-                        # 🎯 MATCH (Comparação com a fila)
+                        # 🎯 MATCH (Garante tratamento exato das strings lidas)
                         if numero in fila_normalizada:
                             print(f"🔥 MATCH ENCONTRADO: {numero} consta na fila do bot {bot_name}!")
 
-                            # Seleciona o botão de despacho interno
+                            # Localiza o ícone/botão de despacho
                             botao_icone = pedido.locator("div.set.row-status > button > i.material-icons.notranslate.despacho").first
                             
-                            # Executa o clique via JavaScript (Mais robusto contra elementos sobrepostos)
+                            # Clique via injeção JavaScript (Evita erros por bloqueio de tela)
                             await botao_icone.evaluate("el => el.click()")
 
-                            # Aguarda o processamento da plataforma
+                            # Aguarda resposta visual da plataforma
                             await page.wait_for_timeout(3000)
-
-                            # Se quiser reativar o screenshot, descomente as duas linhas abaixo:
-                            # nome_arquivo = f"comprovante_{bot_name}_{numero}.png"
-                            # await page.screenshot(path=nome_arquivo)
-                            
                             print(f"🚀 Pedido {numero} despachado com sucesso!")
 
-                            # Atualiza os históricos locais do loop
+                            # Atualiza controle local
                             pedidos_processados.add(numero)
 
-                            # Remove o item original da fila real (Set global)
-                            for item in list(fila_pedidos):
+                            # Remove o item limpo correspondente de dentro do set original do main.py
+                            for item in list(fila_local_referencia):
                                 if limpar_numero(item) == numero:
-                                    fila_pedidos.remove(item)
-                                    print(f"🗑️ Pedido {numero} removido da fila de entrada.")
+                                    fila_local_referencia.remove(item)
+                                    print(f"🗑️ Pedido {numero} removido da fila operacional.")
                                     break
 
                     except Exception as e:
                         print(f"⚠️ Erro ao interagir com o pedido específico do índice {i}: {e}")
 
-                # Intervalo de 5 segundos antes de escanear a tela novamente
+                # Janela de verificação a cada 5 segundos
                 await page.wait_for_timeout(5000)
 
-                # Se a página precisar de F5 para atualizar, descomente as linhas abaixo:
-                # await page.reload()
-                # lista = await esperar_lista_carregar(page)
-
             except Exception as e:
-                print(f"⚠️ Erro geral no loop principal: {e}")
+                print(f"⚠️ Erro geral no loop principal do {bot_name}: {e}")
                 await page.wait_for_timeout(2000)
 
 
 # ==============================================================================
-# ▶️ PONTO DE PARTIDA / EXECUÇÃO
+# ▶️ PONTO DE PARTIDA LOCAL (TESTES ISOLADOS)
 # ==============================================================================
 if __name__ == "__main__":
-    fila_pedidos.add("9404")
-    asyncio.run(executar_automacao())
+    teste_fila = set()
+    teste_fila.add("0188")
+    asyncio.run(executar_automacao(fila_pedidos_param=teste_fila, bot_name="Teste Local"))
