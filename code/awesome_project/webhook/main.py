@@ -38,8 +38,6 @@ from .bot_dispacho import fazer_login, URL_PEDIDOS
 
 from fastapi import FastAPI
 
-app = FastAPI()
-
 @app.get("/")
 def home():
     return {"status": "ok"}
