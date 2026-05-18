@@ -7,7 +7,7 @@
 from fastapi import FastAPI, Form
 
 # HTMLResponse: Avisa ao navegador que o que vamos enviar é uma página visual (site).
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 # Optional: Diz que uma variável pode ou não ter um valor (pode ser vazia).
 from typing import Optional
@@ -34,11 +34,13 @@ from .bot_dispacho import executar_automacao
 from threading import Thread
 import asyncio
 from playwright.async_api import async_playwright
+
 from .bot_dispacho import fazer_login, URL_PEDIDOS
 
 # =============================================================================
 # 🚀 INICIALIZAÇÃO (Ligando os motores)
 # =============================================================================
+
 # Criamos o motor do bot em threads separadas para cada conta.
 BOT_1_QUEUE = set()
 BOT_2_QUEUE = set()
@@ -61,9 +63,17 @@ BOT_CONFIGS = {
     },
 }
 
+
+# =============================================================================
+# 🔥 WORKER DOS BOTS
+# =============================================================================
+
 def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
+
     while True:
+
         try:
+
             print(f"🚀 Iniciando o Trabalhador background do bot {bot_name}...")
 
             loop = asyncio.new_event_loop()
@@ -80,16 +90,23 @@ def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
             )
 
         except Exception as e:
+
             print(f"❌ Erro crítico no bot {bot_name}: {e}")
 
         print(f"🔄 Reiniciando bot {bot_name} em 10 segundos...")
+
         import time
         time.sleep(10)
 
 
+# =============================================================================
+# 🚀 LIFESPAN FASTAPI
+# =============================================================================
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ao iniciar a aplicação, dispara os dois workers do Playwright em background.
+
+    # BOT NIPÔ
     Thread(
         target=start_worker,
         args=(
@@ -101,6 +118,8 @@ async def lifespan(app: FastAPI):
         ),
         daemon=True,
     ).start()
+
+    # BOT ENE
     Thread(
         target=start_worker,
         args=(
@@ -112,35 +131,44 @@ async def lifespan(app: FastAPI):
         ),
         daemon=True,
     ).start()
+
     yield
 
+
+# =============================================================================
+# 🚀 APP FASTAPI
+# =============================================================================
 
 app = FastAPI(lifespan=lifespan)
 
 
 # =============================================================================
-# 🧠 VARIÁVEL GLOBAL (A Memória do Servidor)
+# 🧠 VARIÁVEIS GLOBAIS
 # =============================================================================
-# 'numero_form' funciona como um post-it.
-# Quando você digita no formulário, o valor é colado aqui para ser usado depois.
-# Começa como None (vazio) porque o site acabou de ligar.
+
 numero_form: Optional[str] = None
 bot_selecionado: Optional[str] = None
 
 
 # =============================================================================
-# 🎨 FUNÇÃO DE LAYOUT (O Arquiteto do Site)
+# 🎨 FUNÇÃO DE LAYOUT
 # =============================================================================
+
 def layout(conteudo):
+
     return f"""
     <html>
+
     <head>
+
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
         <title>Zero48 Tech</title>
 
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
 
         <style>
+
         :root {{
             --primary: #00eaff;
             --secondary: #0066ff;
@@ -187,14 +215,13 @@ def layout(conteudo):
             animation: float 6s ease-in-out infinite;
         }}
 
-        /* ESTILO ADICIONAL PARA O RADAR */
         .radar-section {{
             margin-bottom: 25px;
             border-bottom: 1px solid rgba(0,234,255,0.2);
             padding-bottom: 20px;
             text-align: left;
         }}
-        
+
         .btn-mini {{
             background: rgba(0, 234, 255, 0.1);
             border: 1px solid var(--primary);
@@ -206,19 +233,40 @@ def layout(conteudo):
             cursor: pointer;
             transition: all 0.3s ease;
         }}
-        
+
         .btn-mini:hover {{
             background: var(--primary);
             color: #000;
         }}
 
         .radar-container {{
-            max-height: 150px;
+            max-height: 220px;
             overflow-y: auto;
             margin-top: 10px;
             background: rgba(0,0,0,0.2);
             border-radius: 12px;
             padding: 8px;
+        }}
+
+        .pedido-card {{
+            background: rgba(255,255,255,0.06);
+            border: 1px solid rgba(0,234,255,0.15);
+            border-radius: 12px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }}
+
+        .pedido-numero {{
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin-bottom: 5px;
+        }}
+
+        .pedido-endereco {{
+            color: #cbd5e1;
+            font-size: 0.75rem;
+            line-height: 1.4;
         }}
 
         @keyframes float {{
@@ -227,46 +275,6 @@ def layout(conteudo):
             }}
             50% {{
                 transform: translateY(-5px);
-            }}
-        }}
-
-        .container::before {{
-            content: "";
-            position: absolute;
-            inset: -3px;
-            border-radius: 35px;
-            background: linear-gradient(135deg,
-                rgba(0, 234, 255, 0.15) 0%,
-                rgba(100, 200, 255, 0.08) 25%,
-                transparent 50%,
-                rgba(0, 150, 220, 0.08) 75%,
-                rgba(0, 234, 255, 0.15) 100%);
-            z-index: -1;
-            animation: borderGlow 8s ease-in-out infinite;
-        }}
-
-        .container::after {{
-            content: "";
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: linear-gradient(90deg,
-                transparent 0%,
-                rgba(255, 255, 255, 0.4) 50%,
-                transparent 100%);
-            z-index: 1;
-        }}
-
-        @keyframes borderGlow {{
-            0%, 100% {{
-                opacity: 0.6;
-                transform: scale(1);
-            }}
-            50% {{
-                opacity: 1;
-                transform: scale(1.02);
             }}
         }}
 
@@ -283,22 +291,6 @@ def layout(conteudo):
             background-clip: text;
             text-shadow: 0 0 30px rgba(0, 234, 255, 0.5);
             letter-spacing: 2px;
-            position: relative;
-        }}
-
-        .logo::after {{
-            content: "";
-            position: absolute;
-            bottom: -8px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 60px;
-            height: 2px;
-            background: linear-gradient(90deg,
-                transparent 0%,
-                rgba(0, 234, 255, 0.8) 50%,
-                transparent 100%);
-            border-radius: 1px;
         }}
 
         input {{
@@ -307,34 +299,12 @@ def layout(conteudo):
             border-radius: 16px;
             border: 1px solid rgba(255, 255, 255, 0.2);
             background: rgba(255, 255, 255, 0.08);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             color: white;
             margin-bottom: 24px;
             text-align: center;
             font-size: 1.4rem;
             letter-spacing: 3px;
             outline: none;
-            transition: all 0.4s ease;
-            box-shadow:
-                0 8px 20px rgba(0,0,0,0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.1);
-            position: relative;
-        }}
-
-        input::placeholder {{
-            color: rgba(255, 255, 255, 0.6);
-            font-weight: 300;
-        }}
-
-        input:focus {{
-            border-color: rgba(0, 234, 255, 0.6);
-            background: rgba(255, 255, 255, 0.12);
-            box-shadow:
-                0 0 30px rgba(0, 234, 255, 0.3),
-                0 12px 30px rgba(0,0,0,0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
         }}
 
         .radio-group {{
@@ -351,41 +321,6 @@ def layout(conteudo):
             cursor: pointer;
             transition: all 0.4s ease;
             background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            box-shadow:
-                0 8px 20px rgba(0,0,0,0.25),
-                inset 0 1px 0 rgba(255, 255, 255, 0.08);
-            position: relative;
-            overflow: hidden;
-        }}
-
-        .radio-card::before {{
-            content: "";
-            position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg,
-                transparent,
-                rgba(255, 255, 255, 0.1),
-                transparent);
-            transition: left 0.6s ease;
-        }}
-
-        .radio-card:hover {{
-            border-color: rgba(0, 234, 255, 0.4);
-            background: rgba(255, 255, 255, 0.08);
-            box-shadow:
-                0 12px 30px rgba(0,0,0,0.35),
-                0 0 25px rgba(0, 234, 255, 0.15),
-                inset 0 1px 0 rgba(255, 255, 255, 0.12);
-            transform: translateY(-3px);
-        }}
-
-        .radio-card:hover::before {{
-            left: 100%;
         }}
 
         .radio-card input {{
@@ -395,59 +330,23 @@ def layout(conteudo):
         .radio-card.active {{
             border-color: rgba(0, 234, 255, 0.8);
             background: rgba(0, 234, 255, 0.15);
-            box-shadow:
-                0 15px 35px rgba(0,0,0,0.4),
-                0 0 40px rgba(0, 234, 255, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            transform: translateY(-2px);
         }}
 
         .btn {{
-            background: linear-gradient(135deg,
+            background: linear-gradient(
+                135deg,
                 rgba(0, 102, 255, 0.9) 0%,
-                rgba(0, 234, 255, 0.9) 100%);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+                rgba(0, 234, 255, 0.9) 100%
+            );
+
             width: 100%;
             padding: 18px 24px;
             border-radius: 18px;
             font-weight: 700;
             cursor: pointer;
             color: white;
-            transition: all 0.4s ease;
-            box-shadow:
-                0 10px 25px rgba(0,0,0,0.4),
-                0 0 30px rgba(0, 102, 255, 0.3),
-                inset 0 1px 0 rgba(255, 255, 255, 0.2);
-            position: relative;
-            overflow: hidden;
+            border: none;
             font-size: 1.1rem;
-            letter-spacing: 1px;
-        }}
-
-        .btn:hover {{
-            background: linear-gradient(135deg,
-                rgba(0, 234, 255, 1) 0%,
-                rgba(0, 255, 170, 1) 100%);
-            border-color: rgba(0, 255, 170, 0.8);
-            box-shadow:
-                0 12px 35px rgba(0,0,0,0.5),
-                0 0 40px rgba(0, 255, 170, 0.6),
-                0 0 20px rgba(0, 234, 255, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.4);
-            transform: translateY(-3px) scale(1.02);
-        }}
-
-        .btn:active, .btn.clicked {{
-            background: linear-gradient(135deg,
-                rgba(0, 255, 170, 0.9) 0%,
-                rgba(0, 234, 255, 0.9) 100%);
-            border-color: rgba(0, 255, 170, 1);
-            box-shadow:
-                0 5px 15px rgba(0,0,0,0.4),
-                0 0 30px rgba(0, 255, 170, 0.8),
-                0 0 15px rgba(0, 234, 255, 0.6),
-                inset 0 2px 5px rgba(0,0,0,0.2);
-            transform: translateY(1px) scale(0.98);
         }}
 
         .success {{
@@ -470,7 +369,6 @@ def layout(conteudo):
             font-weight: 600;
         }}
 
-        /* FUNDO */
         #bg-tech {{
             position: fixed;
             top: 0;
@@ -479,29 +377,93 @@ def layout(conteudo):
             opacity: 0.35;
             pointer-events: none;
         }}
+
         </style>
 
         <script>
-        function enviarForm() {{
-            const btn = document.querySelector('.btn');
-            if(btn) {{
-                btn.classList.add('clicked');
-                btn.innerHTML = 'Enviando...';
-            }}
-            const loading = document.getElementById('loading');
-            if(loading) {{
-                loading.style.display = 'block';
+
+        async function atualizarRadar() {{
+
+            const lista = document.getElementById('lista-radar');
+
+            lista.innerHTML = `
+                <p style="color:var(--primary); font-size:0.8rem; text-align:center;">
+                    Escaneando pedidos...
+                </p>
+            `;
+
+            try {{
+
+                const response = await fetch('/radar-pedidos');
+
+                const data = await response.json();
+
+                if (data.status !== 'sucesso') {{
+
+                    lista.innerHTML = `
+                        <p style="color:red; font-size:0.8rem;">
+                            Erro ao buscar pedidos
+                        </p>
+                    `;
+
+                    return;
+                }}
+
+                if (data.dados.length === 0) {{
+
+                    lista.innerHTML = `
+                        <p style="color:#94a3b8; font-size:0.8rem; text-align:center;">
+                            Nenhum pedido encontrado
+                        </p>
+                    `;
+
+                    return;
+                }}
+
+                let html = '';
+
+                data.dados.forEach(pedido => {{
+
+                    html += `
+                        <div class="pedido-card">
+
+                            <div class="pedido-numero">
+                                Pedido #${{pedido.numero}}
+                            </div>
+
+                            <div class="pedido-endereco">
+                                ${{pedido.endereco}}
+                            </div>
+
+                        </div>
+                    `;
+                }});
+
+                lista.innerHTML = html;
+
+            }} catch (erro) {{
+
+                lista.innerHTML = `
+                    <p style="color:red; font-size:0.8rem;">
+                        Erro interno ao carregar radar
+                    </p>
+                `;
             }}
         }}
 
-        function atualizarRadar() {{
-            const lista = document.getElementById('lista-radar');
-            lista.innerHTML = '<p style="color:var(--primary); font-size:0.8rem; text-align:center;">Escaneando...</p>';
-            // Aqui você chamaria sua rota de scan
+        function enviarForm() {{
+
+            const btn = document.querySelector('.btn');
+
+            if(btn) {{
+                btn.innerHTML = 'Enviando...';
+            }}
         }}
 
         function limitarInput(el) {{
+
             el.value = el.value.replace(/\\D/g, '');
+
             if (el.value.length > 4) {{
                 el.value = el.value.slice(0, 4);
             }}
@@ -510,94 +472,25 @@ def layout(conteudo):
         document.addEventListener("DOMContentLoaded", () => {{
 
             const cards = document.querySelectorAll('.radio-card');
+
             cards.forEach(card => {{
+
                 card.addEventListener('click', () => {{
+
                     cards.forEach(c => c.classList.remove('active'));
+
                     card.classList.add('active');
+
                     card.querySelector('input').checked = true;
                 }});
             }});
 
-            const canvas = document.getElementById("bg-tech");
-            if (!canvas) return;
+            atualizarRadar();
 
-            const ctx = canvas.getContext("2d");
+            setInterval(atualizarRadar, 30000);
 
-            function resize() {{
-                canvas.width = window.innerWidth;
-                canvas.height = window.innerHeight;
-            }}
-
-            resize();
-            window.addEventListener("resize", resize);
-
-            let particles = [];
-            let time = 0;
-
-            class Particle {{
-                constructor() {{
-                    this.x = Math.random() * canvas.width;
-                    this.y = Math.random() * canvas.height;
-                    this.speedX = (Math.random() - 0.5) * 0.008;
-                    this.speedY = (Math.random() - 0.5) * 0.008;
-                    this.pulseOffset = Math.random() * Math.PI * 2;
-                }}
-
-                update() {{
-                    this.x += this.speedX;
-                    this.y += this.speedY;
-                    if (this.x < 0 || this.x > canvas.width) this.speedX *= -1;
-                    if (this.y < 0 || this.y > canvas.height) this.speedY *= -1;
-                }}
-
-                draw() {{
-                    const pulse = Math.sin(time * 0.0008 + this.pulseOffset) * 0.4 + 0.8;
-                    const radius = 2.5 * pulse;
-                    ctx.fillStyle = 'rgba(100, 200, 255, 0.8)';
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
-                    ctx.fill();
-                }}
-            }}
-
-            function init() {{
-                for (let i = 0; i < 45; i++) {{
-                    particles.push(new Particle());
-                }}
-            }}
-
-            function connect() {{
-                for (let a = 0; a < particles.length; a++) {{
-                    for (let b = a; b < particles.length; b++) {{
-                        let dx = particles[a].x - particles[b].x;
-                        let dy = particles[a].y - particles[b].y;
-                        let dist = dx * dx + dy * dy;
-                        if (dist < 15000) {{
-                            ctx.strokeStyle = `rgba(100, 200, 255, ${{0.2}})`;
-                            ctx.lineWidth = 1;
-                            ctx.beginPath();
-                            ctx.moveTo(particles[a].x, particles[a].y);
-                            ctx.lineTo(particles[b].x, particles[b].y);
-                            ctx.stroke();
-                        }}
-                    }}
-                }}
-            }}
-
-            function animate() {{
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                time++;
-                particles.forEach(p => {{
-                    p.update();
-                    p.draw();
-                }});
-                connect();
-                requestAnimationFrame(animate);
-            }}
-
-            init();
-            animate();
         }});
+
         </script>
 
     </head>
@@ -607,299 +500,483 @@ def layout(conteudo):
         <canvas id="bg-tech"></canvas>
 
         <div class="container">
-            <div class="logo">ZERO48 TECH</div>
 
-           
+            <div class="logo">
+                ZERO48 TECH
+            </div>
+
             <div class="radar-section">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <h3 style="color: var(--primary); font-size: 0.9rem; margin: 0;">Pedidos</h3>
-                    <button onclick="atualizarRadar()" class="btn-mini">SCANEAR</button>
+
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+
+                    <h3 style="color: var(--primary); font-size: 0.9rem;">
+                        Pedidos
+                    </h3>
+
+                    <button onclick="atualizarRadar()" class="btn-mini">
+                        SCANEAR
+                    </button>
+
                 </div>
+
                 <div id="lista-radar" class="radar-container">
-                    <p style="color: #64748b; font-size: 0.7rem; text-align: center;">Aguardando scan...</p>
+
+                    <p style="color:#64748b;font-size:0.7rem;text-align:center;">
+                        Aguardando scan...
+                    </p>
+
                 </div>
+
             </div>
 
             {conteudo}
+
         </div>
 
     </body>
+
     </html>
     """
 
 
 # =============================================================================
-# 🌐 ROTA GET "/" (O que o usuário vê ao abrir o site)
+# 🌐 ROTA GET "/"
 # =============================================================================
+
 @app.get("/", response_class=HTMLResponse)
 def pagina():
-    """
-    Esta função cria a página principal.
-    Ela desenha o campo de entrada e o botão 'Enviar'.
-    """
+
     conteudo = """
-    <h3>Digite o número do seu pedido aqui</h3><br><br>
 
-<form action="/enviar" method="post" onsubmit="enviarForm()">
+    <h3>
+        Digite o número do seu pedido aqui
+    </h3>
 
-    <input 
-        name="numero"
-        placeholder="EX:5059"
-        maxlength="4"   
-        inputmode="numeric"
-        oninput="limitarInput(this)"
-        required
-    >
+    <br><br>
 
-    <div class="radio-group">
-        <label class="radio-card">
-            <input type="radio" name="bot" value="Nipô" required>
-            Nipô
-        </label>
+    <form action="/enviar" method="post" onsubmit="enviarForm()">
 
-        <label class="radio-card">
-            <input type="radio" name="bot" value="Ene">
-            Ene
-        </label>
-    </div>
+        <input
+            name="numero"
+            placeholder="EX:5059"
+            maxlength="4"
+            inputmode="numeric"
+            oninput="limitarInput(this)"
+            required
+        >
 
-    <button class="btn" type="submit">Enviar</button>
+        <div class="radio-group">
 
-    <div id="loading" class="loading">
-        
-    </div>
+            <label class="radio-card">
 
-</form>
-"""
+                <input
+                    type="radio"
+                    name="bot"
+                    value="Nipô"
+                    required
+                >
+
+                Nipô
+
+            </label>
+
+            <label class="radio-card">
+
+                <input
+                    type="radio"
+                    name="bot"
+                    value="Ene"
+                >
+
+                Ene
+
+            </label>
+
+        </div>
+
+        <button class="btn" type="submit">
+            Enviar
+        </button>
+
+    </form>
+    """
+
     return layout(conteudo)
 
 
 # =============================================================================
-# 📩 ROTA POST "/enviar" (O Servidor recebendo o formulário)
+# 📩 ROTA POST "/enviar"
 # =============================================================================
+
 @app.post("/enviar", response_class=HTMLResponse)
 def receber_form(numero: str = Form(...), bot: str = Form(...)):
-    """
-    Esta função processa o que o usuário enviou.
-    Ela valida o dado e o guarda na 'memória global' do servidor.
-    """
-    global numero_form, bot_selecionado
 
-    # Verifica se são 4 números. Se não for, mostra erro.
+    global numero_form
+    global bot_selecionado
+
+    # VALIDAÇÃO
     if not numero.isdigit() or len(numero) != 4:
+
         conteudo = """
-        <div class="error">❌ Digite exatamente 4 números</div>
+        <div class="error">
+            ❌ Digite exatamente 4 números
+        </div>
+
         <a href="/">Voltar</a>
         """
+
         return layout(conteudo)
 
     if bot not in BOT_CONFIGS:
+
         conteudo = """
-        <div class="error">❌ Bot inválido. Escolha Nipô ou Ene.</div>
+        <div class="error">
+            ❌ Bot inválido
+        </div>
+
         <a href="/">Voltar</a>
         """
+
         return layout(conteudo)
 
-    # Guarda o número e o bot selecionado
+    # SALVA
     numero_form = numero
     bot_selecionado = bot
 
     fila = BOT_CONFIGS[bot]["fila"]
+
     fila.add(numero_form)
 
-    print("📥 Número do pedido RECEBIDO manualmente pelo seu Formulário:", numero_form)
-    print(f"📝 Pedido enviado para o bot {bot}.")
+    print("📥 Número recebido:", numero_form)
+    print(f"🤖 Bot escolhido: {bot}")
 
     conteudo = f"""
-    <style>
-        .botao-despacho {{
-            background: linear-gradient(135deg, #FFE66D 0%, #FFEB99 100%);
-            color: #333;
-            padding: 12px 24px;
-            text-decoration: none;
-            font-weight: 600;
-            border: 2px solid #FF6B6B;
-            border-radius: 8px;
-            display: inline-block;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(255, 107, 107, 0.3);
-            font-size: 16px;
-        }}
-        .botao-despacho:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 8px 25px rgba(255, 107, 107, 0.4);
-            background: linear-gradient(135deg, #FFEB99 0%, #FFF0B3 100%);
-        }}
-        .botao-despacho:active {{
-            transform: translateY(0);
-            box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3);
-        }}
-    </style>
-    <div class="success">✅ Pedido Enviado!</div>
-    <p> Loja selecionada: {bot}</p>
-    <p> Aguarde o pedido chegar: {numero_form}</p>
-    <a href="/" class="botao-despacho">Despachar Outro</a>
+
+    <div class="success">
+        ✅ Pedido enviado com sucesso!
+    </div>
+
+    <p>
+        Loja selecionada: {bot}
+    </p>
+
+    <br>
+
+    <p>
+        Pedido: {numero_form}
+    </p>
+
+    <br><br>
+
+    <a href="/" style="
+        color:white;
+        text-decoration:none;
+        background:#0066ff;
+        padding:12px 20px;
+        border-radius:10px;
+        display:inline-block;
+    ">
+        Despachar Outro
+    </a>
     """
+
     return layout(conteudo)
 
 
 # =============================================================================
-# 📡 BOT 3 - RADAR DE CAPTURA (APENAS LEITURA)
+# 📡 RADAR DE PEDIDOS
 # =============================================================================
-
 
 @app.get("/radar-pedidos")
 async def radar_pedidos():
-    # Usamos a conta da Nipô como base para o scraping
+
     config = BOT_CONFIGS["Nipô"]
+
     pedidos_capturados = []
 
+    context = None
+
     try:
+
         async with async_playwright() as p:
-            # Launch rápido em modo headless para não pesar
-            browser = await p.chromium.launch(headless=True)
+
             context = await p.chromium.launch_persistent_context(
-                user_data_dir=config["user_data_dir"], headless=True
+
+                user_data_dir=f"/tmp/{config['user_data_dir']}",
+
+                headless=True,
+
+                args=[
+                    "--disable-dev-shm-usage",
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-gpu",
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                ],
+
+                viewport={
+                    "width": 1280,
+                    "height": 720,
+                },
             )
-            page = context.pages[0]
 
-            await page.goto(URL_PEDIDOS, timeout=30000)
+            # PEGA A PÁGINA
+            if context.pages:
+                page = context.pages[0]
+            else:
+                page = await context.new_page()
 
-            if "login" in page.url:
-                await fazer_login(page, config["email"], config["senha"])
-                await page.goto(URL_PEDIDOS)
+            # ACESSA
+            await page.goto(
+                URL_PEDIDOS,
+                wait_until="domcontentloaded",
+                timeout=60000
+            )
 
-            # Aguarda a lista de pedidos carregar
-            await page.wait_for_selector("#lista-pedidos_esperando", timeout=15000)
+            # LOGIN
+            if "login" in page.url.lower():
 
-            # Localiza todos os blocos de pedidos na tela
-            elementos = page.locator("#lista-pedidos_esperando > div")
+                print("🔐 Fazendo login no radar...")
+
+                await fazer_login(
+                    page,
+                    config["email"],
+                    config["senha"]
+                )
+
+                await page.goto(
+                    URL_PEDIDOS,
+                    wait_until="domcontentloaded",
+                    timeout=60000
+                )
+
+            # AGUARDA LISTA
+            await page.wait_for_selector(
+                "#lista-pedidos_esperando",
+                timeout=20000
+            )
+
+            elementos = page.locator(
+                "#lista-pedidos_esperando > div"
+            )
+
             total = await elementos.count()
 
+            print(f"📦 Pedidos encontrados no radar: {total}")
+
             for i in range(total):
+
                 pedido_el = elementos.nth(i)
 
-                # Extração do Número
-                num_bruto = await pedido_el.locator(
-                    "span.request-number"
-                ).text_content()
-                numero = num_bruto.replace("#", "").strip()
-
-                # Extração do Endereço
-                # (Ajuste o seletor conforme o HTML real: .address-text ou similar)
                 try:
+
+                    # NÚMERO
+                    num_bruto = await pedido_el.locator(
+                        "span.request-number"
+                    ).text_content()
+
+                    numero = (
+                        num_bruto
+                        .replace("#", "")
+                        .strip()
+                    )
+
+                except:
+
+                    numero = "----"
+
+                try:
+
+                    # ENDEREÇO
                     endereco = await pedido_el.locator(
                         ".address-info, .address-detail"
                     ).first.text_content()
-                except:
-                    endereco = "Endereço não disponível na prévia"
 
-                pedidos_capturados.append(
-                    {"numero": numero, "endereco": endereco.strip()}
-                )
+                    endereco = endereco.strip()
+
+                except:
+
+                    endereco = "Endereço não disponível"
+
+                pedidos_capturados.append({
+                    "numero": numero,
+                    "endereco": endereco,
+                })
 
             await context.close()
-            return {"status": "sucesso", "dados": pedidos_capturados}
+
+            return JSONResponse({
+                "status": "sucesso",
+                "dados": pedidos_capturados
+            })
 
     except Exception as e:
-        return {"status": "erro", "mensagem": str(e)}
+
+        print(f"❌ Erro radar: {e}")
+
+        try:
+
+            if context:
+                await context.close()
+
+        except:
+            pass
+
+        return JSONResponse({
+            "status": "erro",
+            "mensagem": str(e)
+        })
 
 
 # =============================================================================
-# 🔔 ROTA POST "/webhook" (O Robô que recebe avisos externos)
+# 🔔 ROTA POST "/webhook"
 # =============================================================================
+
 @app.post("/webhook")
-async def receber_webhook(request: Request, dados: dict = Body(...)):
-    """
-    Recebe webhook, valida segurança e dispara o bot automaticamente
-    """
+async def receber_webhook(
+    request: Request,
+    dados: dict = Body(...)
+):
+
     global numero_form
+    global bot_selecionado
 
     # ==============================
     # 🛡️ VALIDAÇÃO DE ASSINATURA
     # ==============================
+
     assinatura_recebida = request.headers.get("Signature-V2")
+
     corpo_bruto = await request.body()
 
-    # NOTA: Certifique-se de que a variável API_KEY está definida de forma segura!
-    # API_KEY = "sua_chave_secreta_aqui"
     try:
+
         chave_secreta = API_KEY.encode("utf-8")
         assinatura_calculada = hmac.new(
-            chave_secreta, corpo_bruto, hashlib.sha512
+            chave_secreta,
+            corpo_bruto,
+            hashlib.sha512
         ).hexdigest()
 
         if assinatura_recebida != assinatura_calculada:
+
             print("🚨 Assinatura inválida!")
-            return {"status": "erro_autenticacao"}
+
+            return {
+                "status": "erro_autenticacao"
+            }
+
     except NameError:
+
         print(
-            "⚠️ AVISO: API_KEY não definida! Pulando verificação de segurança temporariamente. Defina sua API_KEY no código!"
+            "⚠️ API_KEY não definida!"
         )
 
-    print("✅ Webhook válido (ou proteção pulada)!")
+    print("✅ Webhook válido!")
 
     # ==============================
     # 🔎 EXTRAÇÃO DOS DADOS
     # ==============================
+
     evento = dados.get("event")
+
     pagamento = dados.get("payment", {})
+
     status = pagamento.get("status")
 
-    numero_webhook = dados.get("numero") or pagamento.get("externalReference")
+    numero_webhook = (
+        dados.get("numero")
+        or pagamento.get("externalReference")
+    )
 
-    print(f"📦 Número vindo do webhook: {numero_webhook}")
-    print(f"📦 Número guardado no formulário atual: {numero_form}")
+    print(f"📦 Número webhook: {numero_webhook}")
 
     # ==============================
     # 🎯 FILTROS
     # ==============================
+
     if evento and evento != "PAYMENT_RECEIVED":
-        print("⛔ Evento ignorado (não é pagamento):", evento)
-        return {"status": "ignorado"}
+
+        print("⛔ Evento ignorado")
+
+        return {
+            "status": "ignorado"
+        }
 
     if status and status != "CONFIRMED":
-        print("⏳ Pagamento detectado, mas ainda está pendente:", status)
-        return {"status": "aguardando"}
+
+        print("⏳ Pagamento pendente")
+
+        return {
+            "status": "aguardando"
+        }
 
     # ==============================
-    # 🔥 MATCH + DISPARO DO BOT
+    # 🔥 MATCH
     # ==============================
-    if numero_webhook and numero_form and bot_selecionado:
+
+    if (
+        numero_webhook
+        and numero_form
+        and bot_selecionado
+    ):
+
         if str(numero_webhook) == str(numero_form):
+
             print(
-                f"🔥 MATCH CONFIRMADO! O pedido {numero_webhook} foi pago com sucesso!"
+                f"🔥 MATCH CONFIRMADO: {numero_webhook}"
             )
 
-            bot_queue = BOT_CONFIGS.get(bot_selecionado, {}).get("fila")
+            bot_queue = BOT_CONFIGS.get(
+                bot_selecionado,
+                {}
+            ).get("fila")
+
             if bot_queue is not None:
-                bot_queue.add(str(numero_webhook))
-                print(
-                    f"📝 Anotado! Pedido {numero_webhook} jogado na fila do bot {bot_selecionado}."
+
+                bot_queue.add(
+                    str(numero_webhook)
                 )
-            else:
-                print(f"⚠️ Bot selecionado inválido no webhook: {bot_selecionado}")
+
+                print(
+                    f"📝 Pedido enviado ao bot {bot_selecionado}"
+                )
+
         else:
+
             print(
-                f"❌ NÃO BATEU: Webhook enviou {numero_webhook}, mas no formulário era {numero_form}"
+                f"❌ NÃO BATEU: "
+                f"{numero_webhook} != {numero_form}"
             )
+
     else:
+
         print(
-            "⚠️ Dados incompletos: Faltou número na API, no formulário ou escolha de bot."
+            "⚠️ Dados incompletos"
         )
 
-    return {"status": "ok"}
+    return {
+        "status": "ok"
+    }
 
 
 # =============================================================================
-# 🚀 START PARA EXECUÇÃO (Dando a partida no servidor)
+# 🚀 START
 # =============================================================================
 
 if __name__ == "__main__":
-    # O bot não sobe mais por aqui, ele sobe no evento "startup" do FastAPI lá em cima!
 
     import uvicorn
 
-    port = int(os.environ.get("PORT", 8000))
+    port = int(
+        os.environ.get("PORT", 8000)
+    )
 
-    uvicorn.run("main:app", host="0.0.0.0", port=port) #reload=True)
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=port,
+        reload=True
+    )
