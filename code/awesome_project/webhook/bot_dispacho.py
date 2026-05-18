@@ -101,35 +101,59 @@ async def fazer_login(page, email, senha):
 async def esperar_lista_carregar(page):
     """
     Garante que a lista onde os pedidos chegam carregou.
+    Versão otimizada para Render.
     """
 
-    await page.wait_for_load_state("networkidle")
-
     try:
+        print("📡 Aguardando lista de pedidos carregar...")
+
+        # Espera apenas o HTML inicial carregar
+        await page.wait_for_load_state("domcontentloaded")
+
+        # Aguarda o container principal aparecer no DOM
         await page.wait_for_selector(
             "#lista-pedidos_esperando",
-            state="visible",
-            timeout=60000
+            state="attached",
+            timeout=30000
         )
 
-    except Exception:
-        print("⚠️ Lista de pedidos não apareceu. Atualizando página...")
+        # Pequena pausa para AJAX/renderização interna
+        await page.wait_for_timeout(3000)
 
-        await page.reload()
+        print("✅ Lista de pedidos carregada!")
 
-        await page.wait_for_load_state("networkidle")
+    except Exception as e:
 
+        print(f"⚠️ Lista não apareceu inicialmente: {e}")
+
+        print("🔄 Tentando atualização leve da página...")
+
+        try:
+            # Reload mais leve para Render
+            await page.reload(
+                wait_until="domcontentloaded",
+                timeout=30000
+            )
+
+        except Exception as reload_error:
+            print(f"⚠️ Erro no reload: {reload_error}")
+
+        # Espera renderizar novamente
+        await page.wait_for_timeout(5000)
+
+        # Segunda tentativa
         await page.wait_for_selector(
             "#lista-pedidos_esperando",
-            state="visible",
-            timeout=60000
+            state="attached",
+            timeout=30000
         )
 
+        print("✅ Lista carregada após reload!")
+
+    # Retorna a lista localizada
     lista = page.locator("#lista-pedidos_esperando")
 
     return lista
-
-
 # ==============================================================================
 # 🤖 BOT PRINCIPAL - MONITORAMENTO DE PEDIDOS
 # ==============================================================================
