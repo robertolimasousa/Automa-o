@@ -82,26 +82,53 @@ async def fazer_login(page, email, senha):
 # 📦 FUNÇÃO DE ESPERA DA LISTA DE PEDIDOS
 # ==============================================================================
 async def esperar_lista_carregar(page):
-    """Garante que a lista onde os pedidos chegam carregou."""
-    try:
-        print("📡 Aguardando lista de pedidos carregar...")
+    """Garante que a lista onde os pedidos chegam carregou, usando seletores mais robustos."""
+    # Seletores potenciais para a lista de pedidos
+    potential_selectors = [
+        "#link-pedidos_esperando",   # Seletor correto identificado
+        "#lista-pedidos_esperando",  # Seletor antigo (fallback)
+        "div.dataTables_wrapper",    # Um seletor comum para tabelas de dados
+        "#gestaoPedido-grid",        # Outro ID potencial baseado na URL
+        "div.grid-view",             # Classe genérica para visualização em grade
+        "table.items",               # Tabela comum para listagens
+        "div[role=\"main\"]",        # Área principal de conteúdo
+    ]
+
+    for tentativa in range(1, 3): # Tentar algumas vezes com diferentes seletores
+        print(f"📡 Aguardando lista de pedidos carregar (tentativa {tentativa})...")
         await page.wait_for_load_state("domcontentloaded")
-        await page.wait_for_selector("#lista-pedidos_esperando", state="attached", timeout=30000)
-        await page.wait_for_timeout(3000)
-        print("✅ Lista de pedidos carregada!")
-    except Exception as e:
-        print(f"⚠️ Lista não apareceu inicialmente: {e}")
-        print("🔄 Tentando atualização leve da página...")
-        try:
-            await page.reload(wait_until="domcontentloaded", timeout=30000)
-        except Exception as reload_error:
-            print(f"⚠️ Erro no reload: {reload_error}")
 
-        await page.wait_for_timeout(5000)
-        await page.wait_for_selector("#lista-pedidos_esperando", state="attached", timeout=30000)
-        print("✅ Lista carregada após reload!")
+        for selector in potential_selectors:
+            try:
+                print(f"  Tentando seletor: {selector}")
+                await page.wait_for_selector(selector, state="attached", timeout=15000) # Reduzir timeout para testar mais rápido
+                print(f"✅ Lista de pedidos carregada com seletor: {selector}!")
+                return page.locator(selector)
+            except PlaywrightTimeoutError:
+                print(f"  Seletor {selector} não encontrado em 15s.")
+            except Exception as e:
+                print(f"  Erro ao tentar seletor {selector}: {e}")
 
-    return page.locator("#lista-pedidos_esperando")
+        # Se nenhum seletor funcionou na primeira tentativa, tentar recarregar a página
+        if tentativa == 1:
+            print("⚠️ Nenhum seletor encontrado. Tentando atualização leve da página...")
+            try:
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+                await page.wait_for_timeout(5000) # Dar um tempo para a página renderizar
+            except Exception as reload_error:
+                print(f"⚠️ Erro no reload: {reload_error}")
+
+    # Se todas as tentativas falharem, logar o HTML para diagnóstico
+    print("❌ Falha ao carregar a lista de pedidos após múltiplas tentativas e seletores.")
+    print("Capturando HTML da página para diagnóstico...")
+    page_content = await page.content()
+    with open(f"page_content_error_{time.time()}.html", "w", encoding="utf-8") as f:
+        f.write(page_content)
+    print(f"HTML da página salvo em page_content_error_{time.time()}.html")
+    raise Exception("❌ Impossível carregar a lista de pedidos. Verifique o HTML salvo para diagnóstico.")
+
+    # Retornar um locator vazio ou levantar exceção se a lista não for encontrada
+    # return page.locator("#lista-pedidos_esperando") # Manter o original como fallback se necessário, mas a exceção é mais clara
 
 
 # ==============================================================================
