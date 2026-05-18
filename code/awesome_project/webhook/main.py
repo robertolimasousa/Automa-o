@@ -61,21 +61,30 @@ BOT_CONFIGS = {
     },
 }
 
-
-# Inicializa a thread de cada bot com sua própria sessão de usuário.
 def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
-    print(f"🚀 Iniciando o Trabalhador background do bot {bot_name}...")
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(
-        executar_automacao(
-            user_data_dir=user_data_dir,
-            email=email,
-            senha=senha,
-            fila_pedidos=fila_pedidos,
-            bot_name=bot_name,
-        )
-    )
+    while True:
+        try:
+            print(f"🚀 Iniciando o Trabalhador background do bot {bot_name}...")
+
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            loop.run_until_complete(
+                executar_automacao(
+                    user_data_dir=user_data_dir,
+                    email=email,
+                    senha=senha,
+                    fila_pedidos=fila_pedidos,
+                    bot_name=bot_name,
+                )
+            )
+
+        except Exception as e:
+            print(f"❌ Erro crítico no bot {bot_name}: {e}")
+
+        print(f"🔄 Reiniciando bot {bot_name} em 10 segundos...")
+        import time
+        time.sleep(10)
 
 
 @asynccontextmanager
