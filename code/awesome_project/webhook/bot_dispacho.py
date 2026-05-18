@@ -120,6 +120,7 @@ async def executar_automacao(
     email="niposushidelivery@outlook.com",
     senha="Nipo4145!",
     fila_pedidos_param=None,
+    fila_lock=None,
     bot_name="Default",
 ):
     # Passa a usar diretamente a referência da fila criada no main.py
@@ -170,8 +171,12 @@ async def executar_automacao(
                 else:
                     ultimo_status_vazio = False
 
-                # Coleta e limpa os itens direto da fila compartilhada viva
-                fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
+                # Coleta e limpa os itens direto da fila compartilhada viva com segurança de thread
+                if fila_lock:
+                    with fila_lock:
+                        fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
+                else:
+                    fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
 
                 for i in range(total):
                     pedido = elementos.nth(i)
@@ -209,12 +214,20 @@ async def executar_automacao(
                             # Atualiza controle local
                             pedidos_processados.add(numero)
 
-                            # Remove o item limpo correspondente de dentro do set original do main.py
-                            for item in list(fila_local_referencia):
-                                if limpar_numero(item) == numero:
-                                    fila_local_referencia.remove(item)
-                                    print(f"🗑️ Pedido {numero} removido da fila operacional.")
-                                    break
+                            # Remove o item limpo correspondente de dentro do set original do main.py com segurança de thread
+                            if fila_lock:
+                                with fila_lock:
+                                    for item in list(fila_local_referencia):
+                                        if limpar_numero(item) == numero:
+                                            fila_local_referencia.remove(item)
+                                            print(f"🗑️ Pedido {numero} removido da fila operacional.")
+                                            break
+                            else:
+                                for item in list(fila_local_referencia):
+                                    if limpar_numero(item) == numero:
+                                        fila_local_referencia.remove(item)
+                                        print(f"🗑️ Pedido {numero} removido da fila operacional.")
+                                        break
 
                     except Exception as e:
                         print(f"⚠️ Erro ao interagir com o pedido específico do índice {i}: {e}")

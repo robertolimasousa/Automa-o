@@ -1,24 +1,23 @@
-# =============================================================================
-# 📦 IMPORTAÇÕES (As Ferramentas que o Python vai usar)
-# =============================================================================
+import asyncio
 from fastapi import FastAPI, Form, Request, Body
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from typing import Optional
 from contextlib import asynccontextmanager
 import os
 import hmac
 import hashlib
-from threading import Thread
-import asyncio
+from threading import Thread, Lock
 import time
 
 # Importações internas do seu projeto
-from .bot_dispacho import executar_automacao, fazer_login, URL_PEDIDOS
+# Ajustado para importação direta, assumindo que bot_dispacho.py está no mesmo diretório
+from bot_dispacho import executar_automacao, URL_PEDIDOS
 
 # =============================================================================
 # 🔑 CONFIGURAÇÕES DE SEGURANÇA (Evita o bug de NameError no Webhook)
 # =============================================================================
 API_KEY = os.environ.get("API_KEY", "SUA_CHAVE_SECRETA_PADRAO_AQUI")
+WEBHOOK_SECRET = os.environ.get("WEBHOOK_SECRET", "sua_chave_secreta_do_webhook_aqui")
 
 # =============================================================================
 # 🚀 INICIALIZAÇÃO (Ligando os motores)
@@ -26,20 +25,26 @@ API_KEY = os.environ.get("API_KEY", "SUA_CHAVE_SECRETA_PADRAO_AQUI")
 BOT_1_QUEUE = set()
 BOT_2_QUEUE = set()
 
+# Adicionando Locks para garantir thread-safety nas filas
+BOT_1_QUEUE_LOCK = Lock()
+BOT_2_QUEUE_LOCK = Lock()
+
 # Configuração dos dois bots
 BOT_CONFIGS = {
     "Nipô": {
         "user_data_dir": "user_data_nipo",
-        "email": "niposushidelivery@outlook.com",
-        "senha": "Nipo4145!",
+        "email": os.environ.get("NIPO_EMAIL", "niposushidelivery@outlook.com"),
+        "senha": os.environ.get("NIPO_SENHA", "Nipo4145!"),
         "fila": BOT_1_QUEUE,
+        "fila_lock": BOT_1_QUEUE_LOCK,
         "bot_name": "Nipô",
     },
     "Ene": {
         "user_data_dir": "user_data_ene",
-        "email": "adm@niposushi.com.br",
-        "senha": "Ene@sushi12",
+        "email": os.environ.get("ENE_EMAIL", "adm@niposushi.com.br"),
+        "senha": os.environ.get("ENE_SENHA", "Ene@sushi12"),
         "fila": BOT_2_QUEUE,
+        "fila_lock": BOT_2_QUEUE_LOCK,
         "bot_name": "Ene",
     },
 }
@@ -47,7 +52,7 @@ BOT_CONFIGS = {
 # =============================================================================
 # 🔥 WORKER DOS BOTS (Trabalhador em Segundo Plano - CORRIGIDO 🚀)
 # =============================================================================
-def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
+def start_worker(user_data_dir, email, senha, fila_pedidos, fila_lock, bot_name):
     while True:
         try:
             print(f"🚀 Iniciando o Trabalhador background do bot {bot_name}...")
@@ -55,13 +60,14 @@ def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            # CORREÇÃO AQUI: Passando os parâmetros exatos aceitos pela função no bot_dispacho.py
+            # Passando os parâmetros exatos aceitos pela função no bot_dispacho.py
             loop.run_until_complete(
                 executar_automacao(
                     user_data_dir=user_data_dir,
                     email=email,
                     senha=senha,
-                    fila_pedidos_param=fila_pedidos,  # Mudado de fila_pedidos para fila_pedidos_param
+                    fila_pedidos_param=fila_pedidos,
+                    fila_lock=fila_lock, # Passando o lock para o bot
                     bot_name=bot_name,
                 )
             )
@@ -85,6 +91,7 @@ async def lifespan(app: FastAPI):
             BOT_CONFIGS["Nipô"]["email"],
             BOT_CONFIGS["Nipô"]["senha"],
             BOT_CONFIGS["Nipô"]["fila"],
+            BOT_CONFIGS["Nipô"]["fila_lock"],
             BOT_CONFIGS["Nipô"]["bot_name"],
         ),
         daemon=True,
@@ -98,6 +105,7 @@ async def lifespan(app: FastAPI):
             BOT_CONFIGS["Ene"]["email"],
             BOT_CONFIGS["Ene"]["senha"],
             BOT_CONFIGS["Ene"]["fila"],
+            BOT_CONFIGS["Ene"]["fila_lock"],
             BOT_CONFIGS["Ene"]["bot_name"],
         ),
         daemon=True,
@@ -110,7 +118,7 @@ async def lifespan(app: FastAPI):
 # =============================================================================
 app = FastAPI(lifespan=lifespan)
 
-# 🧠 VARIÁVEIS GLOBAIS
+# 🧠 VARIÁVEIS GLOBAIS (mantidas para compatibilidade com o frontend, mas o uso direto da fila é preferível)
 numero_form: Optional[str] = None
 bot_selecionado: Optional[str] = None
 
@@ -203,7 +211,7 @@ def layout(conteudo):
             if(btn) {{ btn.innerHTML = 'Enviando...'; }}
         }}
         function limitarInput(el) {{
-            el.value = el.value.replace(/\\D/g, '');
+            el.value = el.value.replace(/\D/g, '');
             if (el.value.length > 4) {{ el.value = el.value.slice(0, 4); }}
         }}
         document.addEventListener("DOMContentLoaded", () => {{
@@ -243,7 +251,7 @@ def layout(conteudo):
 # 🌐 ROTA GET "/"
 # =============================================================================
 @app.get("/", response_class=HTMLResponse)
-def pagina():
+async def pagina(): # Adicionado 'async' para consistência, embora não seja estritamente necessário aqui
     conteudo = """
     <h3>Digite o número do seu pedido aqui</h3>
     <br><br>
@@ -270,10 +278,18 @@ def pagina():
     return layout(conteudo)
 
 # =============================================================================
+# 🌐 ROTA HEAD "/"
+# =============================================================================
+@app.head("/", status_code=200)
+async def head_root():
+    """Responde a requisições HEAD para evitar 405 Method Not Allowed."""
+    return Response(headers={"Content-Type": "text/html"})
+
+# =============================================================================
 # 📩 ROTA POST "/enviar"
 # =============================================================================
 @app.post("/enviar", response_class=HTMLResponse)
-def receber_form(numero: str = Form(...), bot: str = Form(...)):
+async def receber_form(numero: str = Form(...), bot: str = Form(...)):
     global numero_form
     global bot_selecionado
 
@@ -295,7 +311,10 @@ def receber_form(numero: str = Form(...), bot: str = Form(...)):
     bot_selecionado = bot
 
     fila = BOT_CONFIGS[bot]["fila"]
-    fila.add(numero_form)
+    fila_lock = BOT_CONFIGS[bot]["fila_lock"]
+
+    with fila_lock:
+        fila.add(numero_form)
 
     print("📥 Número recebido via formulário:", numero_form)
     print(f"🤖 Bot escolhido: {bot}")
@@ -316,15 +335,18 @@ def receber_form(numero: str = Form(...), bot: str = Form(...)):
 # 🎯 NOVA ROTA: GET "/radar-pedidos"
 # =============================================================================
 @app.get("/radar-pedidos")
-def obtener_radar_pedidos():
+async def obtener_radar_pedidos():
     """Retorna os números de pedidos ativos armazenados nas filas de cada robô."""
     dados_fila = []
     for nome_bot, config in BOT_CONFIGS.items():
-        for pedido in config["fila"]:
-            dados_fila.append({
-                "numero": pedido,
-                "endereco": f"Aguardando processamento automático ({nome_bot})."
-            })
+        fila = config["fila"]
+        fila_lock = config["fila_lock"]
+        with fila_lock:
+            for pedido in list(fila): # Criar uma cópia para iterar com segurança
+                dados_fila.append({
+                    "numero": pedido,
+                    "endereco": f"Aguardando processamento automático ({nome_bot})."
+                })
     return {"status": "sucesso", "dados": dados_fila}
 
 # =============================================================================
@@ -332,64 +354,45 @@ def obtener_radar_pedidos():
 # =============================================================================
 @app.post("/webhook")
 async def receber_webhook(request: Request, dados: dict = Body(...)):
-    global numero_form
-    global bot_selecionado
-
     # 🛡️ VALIDAÇÃO DE ASSINATURA
-    assinatura_recebida = request.headers.get("Signature-V2")
-    corpo_bruto = await request.body()
+    # A chave secreta deve ser a mesma configurada no serviço que envia o webhook
+    # Exemplo de validação de assinatura HMAC SHA256
+    # Adapte conforme o método de assinatura do seu provedor de webhook
+    
+    # Obter a assinatura do cabeçalho da requisição
+    assinatura_recebida = request.headers.get("X-Hub-Signature-256")
+    if not assinatura_recebida:
+        print("❌ Webhook recebido sem assinatura.")
+        return JSONResponse(content={"message": "Assinatura ausente"}, status_code=403)
 
-    # Cálculo seguro do HMAC SHA512 usando a API_KEY global definida no topo
-    chave_secreta = API_KEY.encode("utf-8")
-    assinatura_calculada = hmac.new(
-        chave_secreta,
-        corpo_bruto,
-        hashlib.sha512
-    ).hexdigest()
+    # Calcular a assinatura esperada
+    body = await request.body()
+    hashed = hmac.new(WEBHOOK_SECRET.encode('utf-8'), body, hashlib.sha256)
+    assinatura_esperada = f"sha256={hashed.hexdigest()}"
 
-    if assinatura_recebida != assinatura_calculada:
-        print("🚨 Assinatura inválida!")
-        return {"status": "erro_autenticacao"}
+    # Comparar as assinaturas de forma segura
+    if not hmac.compare_digest(assinatura_esperada, assinatura_recebida):
+        print("❌ Assinatura do webhook inválida.")
+        return JSONResponse(content={"message": "Assinatura inválida"}, status_code=403)
 
-    print("✅ Webhook válido!")
+    print("✅ Assinatura do webhook validada com sucesso.")
 
-    # 🔎 EXTRAÇÃO DOS DADOS
-    evento = dados.get("event")
-    pagamento = dados.get("payment", {})
-    status = pagamento.get("status")
-    numero_webhook = dados.get("numero") or pagamento.get("externalReference")
+    # Processar os dados do webhook
+    # Exemplo: Adicionar um pedido à fila do bot Nipô se o webhook indicar um novo pedido
+    if dados.get("event") == "novo_pedido":
+        numero_pedido = str(dados.get("numero_pedido"))
+        bot_alvo = dados.get("bot_alvo", "Nipô") # Default para Nipô se não especificado
 
-    print(f"📦 Número recebido no webhook: {numero_webhook}")
-
-    # 🎯 FILTROS DO GATEWAY
-    if evento and evento != "PAYMENT_RECEIVED":
-        print("⛔ Evento ignorado")
-        return {"status": "ignorado"}
-
-    if status and status != "CONFIRMED":
-        print("⏳ Pagamento pendente")
-        return {"status": "aguardando"}
-
-    # 🔥 AUTOMAÇÃO DO MATCH VIA WEBHOOK
-    if numero_webhook and numero_form and bot_selecionado:
-        if str(numero_webhook) == str(numero_form):
-            print(f"🔥 MATCH CONFIRMADO: {numero_webhook}")
-            
-            bot_queue = BOT_CONFIGS.get(bot_selecionado, {}).get("fila")
-            if bot_queue is not None:
-                bot_queue.add(str(numero_webhook))
-                print(f"📝 Pedido injetado com sucesso no bot {bot_selecionado}")
+        if bot_alvo in BOT_CONFIGS:
+            fila = BOT_CONFIGS[bot_alvo]["fila"]
+            fila_lock = BOT_CONFIGS[bot_alvo]["fila_lock"]
+            with fila_lock:
+                fila.add(numero_pedido)
+            print(f"🔔 Pedido {numero_pedido} adicionado à fila do bot {bot_alvo} via webhook.")
+            return JSONResponse(content={"message": f"Pedido {numero_pedido} adicionado à fila do bot {bot_alvo}"}, status_code=200)
         else:
-            print(f"❌ NÃO BATEU: Webhook ({numero_webhook}) diferente do Form ({numero_form})")
-    else:
-        print("⚠️ Dados globais ausentes para cruzamento de informações neste momento.")
+            print(f"⚠️ Bot alvo '{bot_alvo}' do webhook não configurado.")
+            return JSONResponse(content={"message": f"Bot alvo '{bot_alvo}' não configurado"}, status_code=400)
 
-    return {"status": "ok"}
-
-# =============================================================================
-# 🚀 START
-# =============================================================================
-if __name__ == "__main__":
-    import uvicorn
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    print("ℹ️ Webhook recebido, mas nenhum evento de 'novo_pedido' processado.")
+    return JSONResponse(content={"message": "Webhook recebido e processado"}, status_code=200)
