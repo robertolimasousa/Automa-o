@@ -102,11 +102,30 @@ async def esperar_lista_carregar(page):
     """
     Garante que a lista onde os pedidos chegam carregou.
     """
-    # Mapeamos o container HTML ("div") que guarda a lista de pedidos
-    lista = page.locator("#lista-pedidos_esperando")
 
-    # 1. Espera a lista de fato existir no corpo HTML
-    await lista.wait_for(state="attached", timeout=20000)
+    await page.wait_for_load_state("networkidle")
+
+    try:
+        await page.wait_for_selector(
+            "#lista-pedidos_esperando",
+            state="visible",
+            timeout=60000
+        )
+
+    except Exception:
+        print("⚠️ Lista de pedidos não apareceu. Atualizando página...")
+
+        await page.reload()
+
+        await page.wait_for_load_state("networkidle")
+
+        await page.wait_for_selector(
+            "#lista-pedidos_esperando",
+            state="visible",
+            timeout=60000
+        )
+
+    lista = page.locator("#lista-pedidos_esperando")
 
     return lista
 
