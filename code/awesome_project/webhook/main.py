@@ -28,13 +28,13 @@ import hmac
 import hashlib
 
 # Import do bot de despacho
-from .bot_dispacho import executar_automacao
+from bot_dispacho import executar_automacao
 
 # Threading para executar o bot em paralelo
 from threading import Thread
 import asyncio
 from playwright.async_api import async_playwright
-from .bot_dispacho import fazer_login, URL_PEDIDOS
+from bot_dispacho import fazer_login, URL_PEDIDOS
 
 from fastapi import FastAPI
 
