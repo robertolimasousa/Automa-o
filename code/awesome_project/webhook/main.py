@@ -18,7 +18,6 @@ from .bot_dispacho import executar_automacao, fazer_login, URL_PEDIDOS
 # =============================================================================
 # 🔑 CONFIGURAÇÕES DE SEGURANÇA (Evita o bug de NameError no Webhook)
 # =============================================================================
-# Defina aqui a mesma chave configurada no seu gateway de pagamento/webhook
 API_KEY = os.environ.get("API_KEY", "SUA_CHAVE_SECRETA_PADRAO_AQUI")
 
 # =============================================================================
@@ -46,7 +45,7 @@ BOT_CONFIGS = {
 }
 
 # =============================================================================
-# 🔥 WORKER DOS BOTS (Trabalhador em Segundo Plano)
+# 🔥 WORKER DOS BOTS (Trabalhador em Segundo Plano - CORRIGIDO 🚀)
 # =============================================================================
 def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
     while True:
@@ -56,13 +55,13 @@ def start_worker(user_data_dir, email, senha, fila_pedidos, bot_name):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
 
-            # Executa a automação passando a fila correta de cada bot
+            # CORREÇÃO AQUI: Passando os parâmetros exatos aceitos pela função no bot_dispacho.py
             loop.run_until_complete(
                 executar_automacao(
                     user_data_dir=user_data_dir,
                     email=email,
                     senha=senha,
-                    fila_pedidos=fila_pedidos,
+                    fila_pedidos_param=fila_pedidos,  # Mudado de fila_pedidos para fila_pedidos_param
                     bot_name=bot_name,
                 )
             )
@@ -314,10 +313,10 @@ def receber_form(numero: str = Form(...), bot: str = Form(...)):
     return layout(conteudo)
 
 # =============================================================================
-# 🎯 NOVA ROTA: GET "/radar-pedidos" (Corrige o erro 404 do front-end)
+# 🎯 NOVA ROTA: GET "/radar-pedidos"
 # =============================================================================
 @app.get("/radar-pedidos")
-def obter_radar_pedidos():
+def obtener_radar_pedidos():
     """Retorna os números de pedidos ativos armazenados nas filas de cada robô."""
     dados_fila = []
     for nome_bot, config in BOT_CONFIGS.items():
@@ -347,10 +346,6 @@ async def receber_webhook(request: Request, dados: dict = Body(...)):
         corpo_bruto,
         hashlib.sha512
     ).hexdigest()
-
-    if signature_v2 := assinatura_recebida:
-        if signature_v2 != signature_v2: # Verificação simples se o header foi enviado
-            pass
 
     if assinatura_recebida != assinatura_calculada:
         print("🚨 Assinatura inválida!")
