@@ -1,13 +1,16 @@
-# venv
+cat > .gitignore << EOF
 .venv/
-
-# Python cache
 __pycache__/
 *.pyc
-*.log
 
-# Playwright / sessions
 user_data/
 user_data_ene/
 user_data_nipo/
+
 code/awesome_project/user_data/
+code/awesome_project/webhook/user_data_ene/
+code/awesome_project/webhook/user_data_nipo/
+
+comprovante_*.png
+*.log
+EOF

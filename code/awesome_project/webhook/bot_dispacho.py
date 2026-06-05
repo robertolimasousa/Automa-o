@@ -1,5 +1,8 @@
 import asyncio
-from playwright.async_api import async_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import (
+    async_playwright,
+    TimeoutError as PlaywrightTimeoutError,
+)
 
 # ==============================================================================
 # 🔗 CONFIGURAÇÃO DE URLs DO SISTEMA
@@ -8,37 +11,120 @@ URL_LOGIN = "https://cloud.machine.global/site/login"
 URL_PEDIDOS = "https://cloud.machine.global/solicitacao/gestaoPedido"
 
 
-async def goto_com_retry(page, url, max_retries=3, timeout=60000, wait_until="domcontentloaded"):
+# ==============================================================================
+# 🧹 NORMALIZADOR DE NÚMEROS
+# ==============================================================================
+def normalizar_numero(valor):
+    """
+    Converte qualquer valor de pedido para string limpa.
+    """
+    if valor is None:
+        return ""
+
+    return (
+        str(valor)
+        .replace("#", "")
+        .replace(" ", "")
+        .replace("\n", "")
+        .replace("\r", "")
+        .strip()
+    )
+
+
+async def goto_com_retry(
+    page, url, max_retries=3, timeout=60000, wait_until="domcontentloaded"
+):
     """Navega para a URL com retries em caso de Timeout ou falha temporária."""
+    context = getattr(page, "context", None)
+
     for tentativa in range(1, max_retries + 1):
         try:
+            if page is None or page.is_closed():
+                if context is None:
+                    raise Exception("Página fechada e contexto indisponível")
+                page = await context.new_page()
+
             print(f"🌐 Navegando para {url} (tentativa {tentativa}/{max_retries})")
-            return await page.goto(url, timeout=timeout, wait_until=wait_until)
+            await page.goto(url, timeout=timeout, wait_until=wait_until)
+            return page
+
         except PlaywrightTimeoutError as e:
-            print(f"⚠️ Timeout ao carregar {url} ({e}). Tentativa {tentativa}/{max_retries}")
+            print(
+                f"⚠️ Timeout ao carregar {url} ({e}). Tentativa {tentativa}/{max_retries}"
+            )
+
             if tentativa == max_retries:
                 raise
-            await page.wait_for_timeout(2000)
+
+            await safe_wait_for_timeout(page, 2000)
+
             try:
                 await page.reload(timeout=timeout, wait_until=wait_until)
             except Exception:
                 pass
+
         except Exception as e:
-            print(f"⚠️ Erro ao navegar para {url}: {e}")
+            erro_texto = str(e)
+            print(f"⚠️ Erro ao navegar para {url}: {erro_texto}")
+
             if tentativa == max_retries:
                 raise
-            await page.wait_for_timeout(2000)
+
+            if context and (
+                "ERR_INSUFFICIENT_RESOURCES" in erro_texto
+                or "insufficient resources" in erro_texto.lower()
+            ):
+                print("⚠️ Recriando página após erro de recursos insuficientes...")
+                try:
+                    if page is not None and not page.is_closed():
+                        await page.close()
+                except Exception:
+                    pass
+                page = await context.new_page()
+            else:
+                await safe_wait_for_timeout(page, 2000)
+
     raise Exception(f"❌ Impossível navegar para {url} após {max_retries} tentativas")
+
+
+async def safe_wait_for_timeout(page, timeout):
+    if page is None or page.is_closed():
+        print("⚠️ Ignorando wait_for_timeout: página já está fechada.")
+        return
+    try:
+        await page.wait_for_timeout(timeout)
+    except Exception as e:
+        if "Target page, context or browser has been closed" in str(e):
+            print(
+                "⚠️ wait_for_timeout não pôde ser executado porque a página foi fechada."
+            )
+            return
+        raise
+
+
+async def recover_page(page, context):
+    if page is None or page.is_closed():
+        if context is None:
+            raise Exception("Página fechada e contexto indisponível")
+        print("🔄 Página fechada. Criando uma nova página para continuar.")
+        return await context.new_page()
+    return page
 
 
 # ==============================================================================
 # 🔐 FUNÇÃO DE LOGIN
 # ==============================================================================
 async def fazer_login(page, email, senha):
-    """Preenche os dados de usuário e senha na página de login e entra no sistema."""
-    print("🔐 Fazendo login...")
-    await goto_com_retry(page, URL_LOGIN)
+    """
+    Objetivo: Preencher os dados de usuário e senha na página de login e entrar no sistema.
+    """
 
+    print("🔐 Fazendo login...")
+
+    # Força a ida para a tela de login
+    page = await goto_com_retry(page, URL_LOGIN)
+
+    # Tentamos fazer o login até 5 vezes
     for tentativa in range(5):
         try:
             print(f"🔄 Tentativa login {tentativa + 1}")
@@ -53,24 +139,42 @@ async def fazer_login(page, email, senha):
 
             await username.fill(email)
             await password.fill(senha)
-            await page.wait_for_timeout(500)
+
+            await safe_wait_for_timeout(page, 500)
+
             await entrar_botao.click()
 
             try:
-                await page.wait_for_selector("#menu-lateral", timeout=20000)
-            except Exception:
+                # Espera o menu lateral aparecer após o login.
+                # O carregamento pode ser mais lento, então usamos um timeout maior e confiamos no seletor.
+                await page.wait_for_selector("#menu-lateral", timeout=30000)
+                print("✅ Login realizado sucesso!")
+                return
+
+            except PlaywrightTimeoutError:
                 if "login" not in page.url:
-                    print("⚠️ Login parece ter ocorrido, mas '#menu-lateral' não apareceu. Verificando URL e continuando.")
-                    return
+                    try:
+                        await page.wait_for_selector("#menu-lateral", timeout=10000)
+                        print("✅ Login realizado sucesso!")
+                        return
+                    except PlaywrightTimeoutError:
+                        print(
+                            "⚠️ Login parece ter ocorrido, mas '#menu-lateral' não apareceu. Continuando..."
+                        )
+                        return
+
                 raise
 
-            print("✅ Login realizado com sucesso!")
-            return
+            except Exception as e:
+                # Se ocorrer outro erro, propagamos para permitir retry.
+                raise e
 
         except Exception as e:
             print(f"⚠️ Erro login: {e}")
+
             if page.is_closed():
-                raise Exception("❌ Página fechada durante o processo de login") from e
+                raise Exception("❌ Página fechada durante o login") from e
+
             await page.wait_for_timeout(2000)
             await page.reload()
             await page.wait_for_load_state("domcontentloaded")
@@ -82,195 +186,207 @@ async def fazer_login(page, email, senha):
 # 📦 FUNÇÃO DE ESPERA DA LISTA DE PEDIDOS
 # ==============================================================================
 async def esperar_lista_carregar(page):
-    """Garante que a lista onde os pedidos chegam carregou, usando seletores mais robustos."""
-    # Seletores potenciais para a lista de pedidos
-    potential_selectors = [
-        "#link-pedidos_esperando",   # Seletor correto identificado
-        "#lista-pedidos_esperando",  # Seletor antigo (fallback)
-        "div.dataTables_wrapper",    # Um seletor comum para tabelas de dados
-        "#gestaoPedido-grid",        # Outro ID potencial baseado na URL
-        "div.grid-view",             # Classe genérica para visualização em grade
-        "table.items",               # Tabela comum para listagens
-        "div[role=\"main\"]",        # Área principal de conteúdo
-    ]
+    """
+    Garante que a lista onde os pedidos chegam carregou.
+    """
 
-    for tentativa in range(1, 3): # Tentar algumas vezes com diferentes seletores
-        print(f"📡 Aguardando lista de pedidos carregar (tentativa {tentativa})...")
-        await page.wait_for_load_state("domcontentloaded")
+    lista = page.locator("#lista-pedidos_esperando")
 
-        for selector in potential_selectors:
-            try:
-                print(f"  Tentando seletor: {selector}")
-                await page.wait_for_selector(selector, state="attached", timeout=15000) # Reduzir timeout para testar mais rápido
-                print(f"✅ Lista de pedidos carregada com seletor: {selector}!")
-                return page.locator(selector)
-            except PlaywrightTimeoutError:
-                print(f"  Seletor {selector} não encontrado em 15s.")
-            except Exception as e:
-                print(f"  Erro ao tentar seletor {selector}: {e}")
+    await lista.wait_for(state="attached", timeout=20000)
 
-        # Se nenhum seletor funcionou na primeira tentativa, tentar recarregar a página
-        if tentativa == 1:
-            print("⚠️ Nenhum seletor encontrado. Tentando atualização leve da página...")
-            try:
-                await page.reload(wait_until="domcontentloaded", timeout=30000)
-                await page.wait_for_timeout(5000) # Dar um tempo para a página renderizar
-            except Exception as reload_error:
-                print(f"⚠️ Erro no reload: {reload_error}")
-
-    # Se todas as tentativas falharem, logar o HTML para diagnóstico
-    print("❌ Falha ao carregar a lista de pedidos após múltiplas tentativas e seletores.")
-    print("Capturando HTML da página para diagnóstico...")
-    page_content = await page.content()
-    with open(f"page_content_error_{time.time()}.html", "w", encoding="utf-8") as f:
-        f.write(page_content)
-    print(f"HTML da página salvo em page_content_error_{time.time()}.html")
-    raise Exception("❌ Impossível carregar a lista de pedidos. Verifique o HTML salvo para diagnóstico.")
-
-    # Retornar um locator vazio ou levantar exceção se a lista não for encontrada
-    # return page.locator("#lista-pedidos_esperando") # Manter o original como fallback se necessário, mas a exceção é mais clara
+    return lista
 
 
 # ==============================================================================
 # 🤖 BOT PRINCIPAL - MONITORAMENTO DE PEDIDOS
 # ==============================================================================
-def limpar_numero(texto):
-    """Função auxiliar modificada: Remove espaços e símbolos, mantendo zeros à esquerda."""
-    if not texto:
-        return ""
-    # Corrigido: Não remove mais os zeros usando lstrip para preservar formatos como '0188'
-    return str(texto).replace("#", "").replace("\n", "").replace("\t", "").strip()
+
+# 📝 FILA GLOBAL DE PEDIDOS
+fila_pedidos = set()
 
 
 async def executar_automacao(
     user_data_dir="user_data",
     email="niposushidelivery@outlook.com",
     senha="Nipo4145!",
-    fila_pedidos_param=None,
-    fila_lock=None,
+    fila_pedidos=None,
     bot_name="Default",
 ):
-    # Passa a usar diretamente a referência da fila criada no main.py
-    if fila_pedidos_param is not None:
-        fila_local_referencia = fila_pedidos_param
-    else:
-        fila_local_referencia = set()
 
-    print(f"🤖 Bot {bot_name} ativado (Modo 24/7): Aguardando comandos na fila!")
+    if fila_pedidos is None:
+        fila_pedidos = globals().get("fila_pedidos", set())
+
+    print(f"🤖 Bot {bot_name} ativado (Modo 24/7): aguardando pedidos...")
 
     async with async_playwright() as p:
+
         context = await p.chromium.launch_persistent_context(
             user_data_dir=user_data_dir,
             headless=True,
             slow_mo=100,
-            args=["--no-sandbox"]
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-extensions",
+                "--disable-background-timer-throttling",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows",
+            ],
         )
 
         page = context.pages[0] if context.pages else await context.new_page()
-        await goto_com_retry(page, URL_PEDIDOS)
+
+        page = await goto_com_retry(page, URL_PEDIDOS)
 
         if "login" in page.url:
             await fazer_login(page, email, senha)
-            await goto_com_retry(page, URL_PEDIDOS)
+            page = await goto_com_retry(page, URL_PEDIDOS)
 
         lista = await esperar_lista_carregar(page)
-        print(f"📦 Sistema {bot_name} pronto - loop de monitoramento iniciado...")
+
+        print("📦 Sistema pronto - loop iniciado...")
 
         pedidos_processados = set()
         pedidos_logados = set()
         ultimo_status_vazio = False
 
+        # 🔁 LOOP PRINCIPAL
         while True:
             try:
+
+                # 🛡️ Sessão expirada
                 if "login" in page.url:
                     print("⚠️ Sessão expirada, relogando...")
+
                     await fazer_login(page, email, senha)
+
                     await page.goto(URL_PEDIDOS)
+
                     lista = await esperar_lista_carregar(page)
 
+                # Lista de pedidos
                 elementos = lista.locator("xpath=./div")
+
                 total = await elementos.count()
 
+                # Nenhum pedido
                 if total == 0:
+
                     if not ultimo_status_vazio:
-                        print(f"📭 [{bot_name}] Nenhum pedido pendente na plataforma. Aguardando...")
+                        print("📭 Nenhum pedido pendente aparecendo na plataforma.")
+
                         ultimo_status_vazio = True
+
                 else:
                     ultimo_status_vazio = False
 
-                # Coleta e limpa os itens direto da fila compartilhada viva com segurança de thread
-                if fila_lock:
-                    with fila_lock:
-                        fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
-                else:
-                    fila_normalizada = {limpar_numero(x) for x in fila_local_referencia if x}
-
+                # Percorre pedidos
                 for i in range(total):
+
                     pedido = elementos.nth(i)
 
                     try:
-                        numero_alvo = pedido.locator("span.request-number").first
+
+                        # Localiza número
+                        numero_alvo = pedido.locator("span.request-number")
+
                         if await numero_alvo.count() == 0:
                             continue
 
-                        numero_bruto = await numero_alvo.evaluate("(el) => el.textContent")
-                        numero = limpar_numero(numero_bruto)
+                        numero_bruto = await numero_alvo.first.text_content()
 
-                        if not numero or numero in pedidos_processados:
+                        # Normaliza número da tela
+                        numero = normalizar_numero(numero_bruto)
+
+                        # Ignora já processados
+                        if numero in pedidos_processados:
                             continue
 
+                        # Log visual
                         if numero not in pedidos_logados:
-                            print(f"🔎 Pedido encontrado na tela [{bot_name}]: {numero}")
+                            print(
+                                f"🔎 Pedido encontrado na tela do bot {bot_name}: {numero}"
+                            )
+
                             pedidos_logados.add(numero)
-                            print(f"📥 FILA ATIVA [{bot_name}]: {fila_normalizada}")
 
-                        # 🎯 MATCH (Garante tratamento exato das strings lidas)
+                        # ==============================================================================
+                        # 🎯 NORMALIZA FILA
+                        # ==============================================================================
+                        fila_normalizada = {
+                            normalizar_numero(item) for item in fila_pedidos
+                        }
+
+                        # ==============================================================================
+                        # 🎯 MATCH
+                        # ==============================================================================
                         if numero in fila_normalizada:
-                            print(f"🔥 MATCH ENCONTRADO: {numero} consta na fila do bot {bot_name}!")
 
-                            # Localiza o ícone/botão de despacho
-                            botao_icone = pedido.locator("div.set.row-status > button > i.material-icons.notranslate.despacho").first
-                            
-                            # Clique via injeção JavaScript (Evita erros por bloqueio de tela)
+                            print(
+                                f"🔥 MATCH! Pedido '{numero}' encontrado na fila do bot {bot_name}"
+                            )
+
+                            # Botão despacho
+                            botao_icone = pedido.locator(
+                                "div.set.row-status > button > i.material-icons.notranslate.despacho"
+                            ).first
+
+                            # Clique forçado
                             await botao_icone.evaluate("el => el.click()")
 
-                            # Aguarda resposta visual da plataforma
-                            await page.wait_for_timeout(3000)
+                            # Espera processamento
+                            await safe_wait_for_timeout(page, 2000)
+
+                            # Screenshot
+                            nome_arquivo = f"comprovante_{bot_name}_{numero}.png"
+
+                            await page.screenshot(path=nome_arquivo)
+
                             print(f"🚀 Pedido {numero} despachado com sucesso!")
 
-                            # Atualiza controle local
+                            print(f"📸 Comprovante salvo: {nome_arquivo}")
+
+                            print("✅ Removendo pedido da fila...")
+
+                            # Remove item original da fila
+                            for item in list(fila_pedidos):
+
+                                item_normalizado = normalizar_numero(item)
+
+                                if item_normalizado == numero:
+                                    fila_pedidos.remove(item)
+                                    break
+
                             pedidos_processados.add(numero)
 
-                            # Remove o item limpo correspondente de dentro do set original do main.py com segurança de thread
-                            if fila_lock:
-                                with fila_lock:
-                                    for item in list(fila_local_referencia):
-                                        if limpar_numero(item) == numero:
-                                            fila_local_referencia.remove(item)
-                                            print(f"🗑️ Pedido {numero} removido da fila operacional.")
-                                            break
-                            else:
-                                for item in list(fila_local_referencia):
-                                    if limpar_numero(item) == numero:
-                                        fila_local_referencia.remove(item)
-                                        print(f"🗑️ Pedido {numero} removido da fila operacional.")
-                                        break
-
                     except Exception as e:
-                        print(f"⚠️ Erro ao interagir com o pedido específico do índice {i}: {e}")
+                        print(f"⚠️ Erro ao processar pedido listado: {e}")
 
-                # Janela de verificação a cada 5 segundos
-                await page.wait_for_timeout(5000)
+                # Espera entre loops
+                await safe_wait_for_timeout(page, 5000)
 
             except Exception as e:
-                print(f"⚠️ Erro geral no loop principal do {bot_name}: {e}")
-                await page.wait_for_timeout(2000)
+                print(f"⚠️ Erro geral do loop principal: {e}")
+
+                if page is None or page.is_closed():
+                    try:
+                        page = await recover_page(page, context)
+                        page = await goto_com_retry(page, URL_PEDIDOS)
+                        lista = await esperar_lista_carregar(page)
+                        continue
+                    except Exception as recovery_error:
+                        print(f"⚠️ Falha ao recuperar sessão do bot: {recovery_error}")
+
+                await safe_wait_for_timeout(page, 2000)
 
 
 # ==============================================================================
-# ▶️ PONTO DE PARTIDA LOCAL (TESTES ISOLADOS)
+# ▶️ EXECUÇÃO
 # ==============================================================================
 if __name__ == "__main__":
-    teste_fila = set()
-    teste_fila.add("0188")
-    asyncio.run(executar_automacao(fila_pedidos_param=teste_fila, bot_name="Teste Local"))
+
+    # Teste local
+    fila_pedidos.add("9404")
+
+    asyncio.run(executar_automacao())
